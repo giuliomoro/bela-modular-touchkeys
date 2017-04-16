@@ -1,0 +1,40 @@
+diff --git a/core/PRU.cpp b/core/PRU.cpp
+index 5aa91b9..e26835d 100644
+--- a/core/PRU.cpp
++++ b/core/PRU.cpp
+@@ -546,7 +546,7 @@ void PRU::loop(RT_INTR *pru_interrupt, void *userData)
+ 		return;
+ 	}
+ 	// Polling interval is 1/4 of the period
+-	RTIME sleepTime = PRU_SAMPLE_INTERVAL_NS * (context->audioInChannels) * context->audioFrames / 4;
++	RTIME sleepTime = PRU_SAMPLE_INTERVAL_NS * (context->audioInChannels) * context->audioFrames / 16;
+ #endif
+ 
+ 	uint32_t pru_audio_offset, pru_spi_offset;
+@@ -710,7 +710,7 @@ void PRU::loop(RT_INTR *pru_interrupt, void *userData)
+ 									&pru_buffer_spi_adc[pru_spi_offset], context->analogIn);
+ #else	
+ 			for(unsigned int n = 0; n < context->analogInChannels * context->analogFrames; n++) {
+-				context->analogIn[n] = (float)pru_buffer_spi_adc[n + pru_spi_offset] / 65536.0f;
++				context->analogIn[n] = 1 - (float)pru_buffer_spi_adc[n + pru_spi_offset] / 65536.0f;
+ 			}
+ #endif
+ 			
+@@ -803,7 +803,7 @@ void PRU::loop(RT_INTR *pru_interrupt, void *userData)
+ 								  context->analogOut, (uint16_t*)&pru_buffer_spi_dac[pru_spi_offset]);
+ #else		
+ 			for(unsigned int n = 0; n < context->analogOutChannels * context->analogFrames; n++) {
+-				int out = context->analogOut[n] * 65536.0f;
++				int out = (1-context->analogOut[n]) * 65536.0f;
+ 				if(out < 0) out = 0;
+ 				else if(out > 65535) out = 65535;
+ 				pru_buffer_spi_dac[n + pru_spi_offset] = (uint16_t)out;
+@@ -822,7 +822,7 @@ void PRU::loop(RT_INTR *pru_interrupt, void *userData)
+ 		float_to_int16_audio(2 * context->audioFrames, context->audioOut, &pru_buffer_audio_dac[pru_audio_offset]);
+ #else	
+ 		for(unsigned int n = 0; n < context->audioOutChannels * context->audioFrames; n++) {
+-			int out = context->audioOut[n] * 32768.0f;
++			int out = context->audioOut[n] * -32768.0f;
+ 			if(out < -32768) out = -32768;
+ 			else if(out > 32767) out = 32767;
+ 			pru_buffer_audio_dac[n + pru_audio_offset] = (int16_t)out;
