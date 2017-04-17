@@ -35,21 +35,6 @@ bool gIsNoteOn = 0;
 int gVelocity = 0;
 float gSamplingPeriod = 0;
 
-
-void midiMessageCallback(MidiChannelMessage message, void* arg){
-	if(arg != NULL){
-		rt_printf("Message from midi port %s ", (const char*) arg);
-	}
-	message.prettyPrint();
-	if(message.getType() == kmmNoteOn){
-		gFreq = powf(2, (message.getDataByte(0)-69)/12.0f) * 440;
-		gVelocity = message.getDataByte(1);
-		gPhaseIncrement = 2 * M_PI * gFreq * gSamplingPeriod;
-		gIsNoteOn = gVelocity > 0;
-		rt_printf("v0:%f, ph: %6.5f, gVelocity: %d\n", gFreq, gPhaseIncrement, gVelocity);
-	}
-}
-
 TouchKeysMidiParser parser;
 Midi midi;
 
@@ -89,9 +74,13 @@ void render(BelaContext *context, void *userData)
 	const std::vector<TouchKeysTouch>& touches = parser.getTouches();
 	int cvPerTouch = 4;
 	float minNote = 24;
-	float pitchCvScale = 1.f/5.f / 20.f ;
-	int maxTouches = 1;
+	float pitchCvScale = 0.009;
+	int maxTouches = 2;
 	int activeTouches = 0;
+	static float analogOut[8] = {0};
+	static float analogOutOld[8] = {0};
+	static bool analogOutSmooth[8] = {1, 1, 1, 0, 1, 1, 1, 0};
+	float smooth = 0.99;
 	for(unsigned int n = 0; n < touches.size() && activeTouches < maxTouches; ++n)
 	{
 		const TouchKeysTouch& touch = touches[n];
@@ -102,23 +91,21 @@ void render(BelaContext *context, void *userData)
 		float zCv = touch.z * 0.5f + 0.5f;
 		float gate = 1;
 		if(count % 200 == 0){
-			rt_printf("writing: %.3f %.3f %.3f\n", xCv, yCv, zCv);
+			rt_printf("writing: %.3f %.3f %.3f %.3f\n", xCv, yCv, zCv, gate);
 		}
-		analogWrite(context, 0, activeTouches * cvPerTouch, xCv);
-		analogWrite(context, 0, activeTouches * cvPerTouch + 1, yCv);
-		analogWrite(context, 0, activeTouches * cvPerTouch + 2, zCv);
-		analogWrite(context, 0, activeTouches * cvPerTouch + 3, gate);
+		analogOut[activeTouches * cvPerTouch + 0] = xCv;
+		analogOut[activeTouches * cvPerTouch + 1] = yCv;
+		analogOut[activeTouches * cvPerTouch + 2] = zCv;
+		analogOut[activeTouches * cvPerTouch + 3] = gate;
 		++activeTouches;
 	}
 
 	// write 0 to disabled touches
 	for(int n = maxTouches; n > activeTouches; --n)
 	{
-		//for(int c = 0; c < cvPerTouch; ++c){
-			// turn the gate off
-			int channel = (n - 1) * cvPerTouch + 3;
-			analogWrite(context, 0, channel, 0);
-		//}
+		// turn the gate off
+		int channel = (n - 1) * cvPerTouch + 3;
+		analogOut[channel] = 0;
 	}
 
 	//log to console
@@ -136,6 +123,23 @@ void render(BelaContext *context, void *userData)
 	}
 	++count;
 
+	for(unsigned int c = 0; c < context->analogOutChannels; ++c)
+	{
+		if(analogOutSmooth[c])
+		{
+			for(unsigned int n = 0; n < context->analogFrames; ++n)
+			{
+				// smooth the analogOut values
+				float out = analogOutOld[c] * smooth + analogOut[c] * (1 - smooth);
+				analogOutOld[c] = out;
+				analogWriteOnce(context, n, c, out);
+			}
+		}
+		else
+		{
+			analogWrite(context, 0, c, analogOut[c]);
+		}
+	}
 	for(unsigned int n = 0; n < context->audioFrames; n++){
 		for(unsigned int c = 0; c < context->audioInChannels; ++c)
 			audioWrite(context, n, c, audioRead(context, n, c));
